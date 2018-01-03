@@ -7,9 +7,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import java.util.*;
+
 import decaf.tac.Functy;
 import decaf.tac.Tac;
 import decaf.tac.Tac.Kind;
+
+import decaf.tac.Temp;
 
 public class FlowGraph implements Iterable<BasicBlock> {
 
@@ -191,6 +195,32 @@ public class FlowGraph implements Iterable<BasicBlock> {
                 }
             }
         } while (changed);
+
+	// calculate du-chain
+	changed = true;
+	do {
+		changed = false;
+		for (BasicBlock bb: bbs) {
+			for (int i = 0; i < 2; ++i) {
+				bb.duLiveOut.addAll(bbs.get(bb.next[i]).duLiveIn);
+			}
+			TreeSet<Pair> toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR);
+			for (Temp t: bb.duDef) {
+				for (Pair p: bb.duLiveOut) {
+					if (p.tmp.id == t.id) {
+						toBeRemoved.add(p);
+					}
+				}
+			}
+			bb.duLiveOut.removeAll(toBeRemoved);
+			if (bb.duLiveIn.addAll(bb.duLiveOut)) {
+				changed = true;
+			}
+			for (int i = 0; i < 2; ++i) {
+				bb.duLiveOut.addAll(bbs.get(bb.next[i]).duLiveIn);
+			}
+		}
+	} while (changed);
     }
 
     public void simplify() {

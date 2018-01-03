@@ -49,10 +49,10 @@ public class BasicBlock {
     private List<Asm> asms;
 
     /* for du-chain calculation */
-    public List<Pair> duLiveUse;
-    public List<Temp> duDef;
-    public List<Pair> duLiveIn;
-    public List<Pair> duLiveOut;
+    public Set<Pair> duLiveUse;
+    public Set<Temp> duDef;
+    public Set<Pair> duLiveIn;
+    public Set<Pair> duLiveOut;
 
     /**
      * DUChain.
@@ -72,10 +72,10 @@ public class BasicBlock {
 
         DUChain = new TreeMap<Pair, Set<Integer>>(Pair.COMPARATOR);
 
-	duLiveUse = new ArrayList<Pair>();
-	duDef = new ArrayList<Temp>();
-	duLiveIn = new ArrayList<Pair>(); 
-	duLiveOut = new ArrayList<Pair>(); 
+	duLiveUse = new TreeSet<Pair>(Pair.COMPARATOR);
+	duDef = new TreeSet<Temp>(Temp.ID_COMPARATOR);          
+	duLiveIn = new TreeSet<Pair>(Pair.COMPARATOR);
+	duLiveOut = new TreeSet<Pair>(Pair.COMPARATOR);
     }
 
     public void allocateTacIds() {
@@ -210,10 +210,12 @@ public class BasicBlock {
         }
 
 	if (var != null && var.duLastVisitedBB != bbNum) {
-		duLiveUse.add(new Pair(endId, var)); // to be filled
+		duLiveUse.add(new Pair(endId, var)); 
 	}
 
         liveIn.addAll(liveUse);
+
+	duLiveIn.addAll(duLiveUse);
     }
 
     public void analyzeLiveness() {
@@ -223,8 +225,20 @@ public class BasicBlock {
         for (; tac.next != null; tac = tac.next) ;
 
         tac.liveOut = new HashSet<Temp>(liveOut);
+
+	TreeSet<Pair> tmpDuLive = new TreeSet<Pair>(Pair.COMPARATOR);
+	tmpDuLive.addAll(duLiveOut);
+	Pair p;
+	Set<Integer> s;
+	Set<Pair> toBeRemoved;
+
         if (var != null)
             tac.liveOut.add(var);
+
+	if (var != null) {
+		tmpDuLive.add(new Pair(endId, var));
+	}
+
         for (; tac != tacList; tac = tac.prev) {
             tac.prev.liveOut = new HashSet<Temp>(tac.liveOut);
             switch (tac.opc) {
@@ -245,6 +259,22 @@ public class BasicBlock {
                     tac.prev.liveOut.remove(tac.op0);
                     tac.prev.liveOut.add(tac.op1);
                     tac.prev.liveOut.add(tac.op2);
+
+		    p = new Pair(tac.id, tac.op0);
+		    s = new TreeSet<Integer>();
+		    toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR);
+		    for (Pair i: tmpDuLive) {
+			    if (i.tmp.id == tac.op0.id) {
+				    toBeRemoved.add(i);
+				    s.add(i.pos);
+			    }
+		    }
+		    DUChain.put(p, s);
+		    tmpDuLive.removeAll(toBeRemoved);
+		    
+		    tmpDuLive.add(new Pair(tac.id, tac.op1));
+		    tmpDuLive.add(new Pair(tac.id, tac.op2));
+
                     break;
                 case NEG:
                 case LNOT:
@@ -254,6 +284,23 @@ public class BasicBlock {
 				/* use op1, def op0 */
                     tac.prev.liveOut.remove(tac.op0);
                     tac.prev.liveOut.add(tac.op1);
+
+		    if (tac.op0 != null) {
+		    	p = new Pair(tac.id, tac.op0);       
+		    	s = new TreeSet<Integer>();         
+		    	toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR); 
+		    	for (Pair i: tmpDuLive) {
+		    	        if (i.tmp.id == tac.op0.id) {
+		    	    	    toBeRemoved.add(i);
+		    	    	    s.add(i.pos);
+		    	        }
+		    	}
+		    	DUChain.put(p, s);
+		    	tmpDuLive.removeAll(toBeRemoved);
+		    }
+
+		    tmpDuLive.add(new Pair(tac.id, tac.op1));
+
                     break;
                 case LOAD_VTBL:
                 case DIRECT_CALL:
@@ -262,23 +309,144 @@ public class BasicBlock {
                 case LOAD_IMM4:
 				/* def op0 */
                     tac.prev.liveOut.remove(tac.op0);
+
+		    if (tac.op0 != null) {
+		    	p = new Pair(tac.id, tac.op0);       
+		    	s = new TreeSet<Integer>();         
+		    	toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR); 
+		    	for (Pair i: tmpDuLive) {
+		    	        if (i.tmp.id == tac.op0.id) {
+		    	    	    toBeRemoved.add(i);
+		    	    	    s.add(i.pos);
+		    	        }
+		    	}
+		    	DUChain.put(p, s);
+		    	tmpDuLive.removeAll(toBeRemoved);
+		    }
+
                     break;
                 case STORE:
 				/* use op0 and op1*/
                     tac.prev.liveOut.add(tac.op0);
                     tac.prev.liveOut.add(tac.op1);
+
+		    tmpDuLive.add(new Pair(tac.id, tac.op0));
+		    tmpDuLive.add(new Pair(tac.id, tac.op1));
+
                     break;
                 case BEQZ:
                 case BNEZ:
                 case PARM:
 				/* use op0 */
                     tac.prev.liveOut.add(tac.op0);
+
+		    tmpDuLive.add(new Pair(tac.id, tac.op0));
+
                     break;
                 default:
 				/* BRANCH MEMO MARK PARM*/
                     break;
             }
         }
+
+	tac = tacList;
+	switch (tac.opc) {
+		case ADD:
+		case SUB:
+		case MUL:
+		case DIV:
+		case MOD:
+		case LAND:
+		case LOR:
+		case GTR:
+		case GEQ:
+		case EQU:
+		case NEQ:
+		case LEQ:
+		case LES:
+			/* use op1 and op2, def op0 */
+			p = new Pair(tac.id, tac.op0);
+			s = new TreeSet<Integer>();
+			toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR);
+			for (Pair i: tmpDuLive) {
+				if (i.tmp.id == tac.op0.id) {
+					toBeRemoved.add(i);
+					s.add(i.pos);
+				}
+			}
+			DUChain.put(p, s);
+			tmpDuLive.removeAll(toBeRemoved);
+			
+			tmpDuLive.add(new Pair(tac.id, tac.op1));
+			tmpDuLive.add(new Pair(tac.id, tac.op2));
+			
+			break;
+		case NEG:
+		case LNOT:
+		case ASSIGN:
+		case INDIRECT_CALL:
+		case LOAD:
+			/* use op1, def op0 */
+			
+			if (tac.op0 != null) {
+				p = new Pair(tac.id, tac.op0);       
+				s = new TreeSet<Integer>();         
+				toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR); 
+				for (Pair i: tmpDuLive) {
+					if (i.tmp.id == tac.op0.id) {
+						toBeRemoved.add(i);
+						s.add(i.pos);
+					}
+				}
+				DUChain.put(p, s);
+				tmpDuLive.removeAll(toBeRemoved);
+			}
+			
+			tmpDuLive.add(new Pair(tac.id, tac.op1));
+			
+			break;
+		case LOAD_VTBL:
+		case DIRECT_CALL:
+		case RETURN:
+		case LOAD_STR_CONST:
+		case LOAD_IMM4:
+			/* def op0 */
+			
+			if (tac.op0 != null) {
+				p = new Pair(tac.id, tac.op0);       
+				s = new TreeSet<Integer>();         
+				toBeRemoved = new TreeSet<Pair>(Pair.COMPARATOR); 
+				for (Pair i: tmpDuLive) {
+					if (i.tmp.id == tac.op0.id) {
+						toBeRemoved.add(i);
+						s.add(i.pos);
+					}
+				}
+				DUChain.put(p, s);
+				tmpDuLive.removeAll(toBeRemoved);
+			}
+			
+			break;
+		case STORE:
+			/* use op0 and op1*/
+			
+			tmpDuLive.add(new Pair(tac.id, tac.op0));
+			tmpDuLive.add(new Pair(tac.id, tac.op1));
+			
+			break;
+		case BEQZ:
+		case BNEZ:
+		case PARM:
+			/* use op0 */
+			
+			tmpDuLive.add(new Pair(tac.id, tac.op0));
+			
+			break;
+		default:
+			/* BRANCH MEMO MARK PARM*/
+			break;
+	}
+
     }
 
     public void printTo(PrintWriter pw) {
