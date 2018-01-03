@@ -48,6 +48,12 @@ public class BasicBlock {
 
     private List<Asm> asms;
 
+    /* for du-chain calculation */
+    public List<Pair> duLiveUse;
+    public List<Temp> duDef;
+    public List<Pair> duLiveIn;
+    public List<Pair> duLiveOut;
+
     /**
      * DUChain.
      *
@@ -65,6 +71,11 @@ public class BasicBlock {
         asms = new ArrayList<Asm>();
 
         DUChain = new TreeMap<Pair, Set<Integer>>(Pair.COMPARATOR);
+
+	duLiveUse = new ArrayList<Pair>();
+	duDef = new ArrayList<Temp>();
+	duLiveIn = new ArrayList<Pair>(); 
+	duLiveOut = new ArrayList<Pair>(); 
     }
 
     public void allocateTacIds() {
@@ -103,6 +114,17 @@ public class BasicBlock {
                         def.add(tac.op0);
                         tac.op0.lastVisitedBB = bbNum;
                     }
+
+		    if (tac.op1.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op1));
+		    }
+		    if (tac.op2.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op2));
+		    }
+		    if (tac.op0.duLastVisitedBB != bbNum) {
+			    tac.op0.duLastVisitedBB = bbNum;
+			    duDef.add(tac.op0);
+		    }
                     break;
                 case NEG:
                 case LNOT:
@@ -119,6 +141,15 @@ public class BasicBlock {
                         def.add(tac.op0);
                         tac.op0.lastVisitedBB = bbNum;
                     }
+
+		    if (tac.op1.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op1));
+		    }
+		    if (tac.op0 != null && tac.op0.duLastVisitedBB != bbNum) {
+			    tac.op0.duLastVisitedBB = bbNum;
+			    duDef.add(tac.op0);
+		    }
+
                     break;
                 case LOAD_VTBL:
                 case DIRECT_CALL:
@@ -131,6 +162,12 @@ public class BasicBlock {
                         def.add(tac.op0);
                         tac.op0.lastVisitedBB = bbNum;
                     }
+
+		    if (tac.op0 != null && tac.op0.duLastVisitedBB != bbNum) {
+			    tac.op0.duLastVisitedBB = bbNum;
+			    duDef.add(tac.op0);
+		    }
+
                     break;
                 case STORE:
 				/* use op0 and op1*/
@@ -142,6 +179,14 @@ public class BasicBlock {
                         liveUse.add(tac.op1);
                         tac.op1.lastVisitedBB = bbNum;
                     }
+
+		    if (tac.op0.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op0));
+		    }
+		    if (tac.op1.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op1));
+		    }
+
                     break;
                 case PARM:
 				/* use op0 */
@@ -149,6 +194,10 @@ public class BasicBlock {
                         liveUse.add(tac.op0);
                         tac.op0.lastVisitedBB = bbNum;
                     }
+
+		    if (tac.op0.duLastVisitedBB != bbNum) {
+			    duLiveUse.add(new Pair(tac.id, tac.op0));
+		    }
                     break;
                 default:
 				/* BRANCH MEMO MARK PARM*/
@@ -159,6 +208,11 @@ public class BasicBlock {
             liveUse.add(var);
             var.lastVisitedBB = bbNum;
         }
+
+	if (var != null && var.duLastVisitedBB != bbNum) {
+		duLiveUse.add(new Pair(endId, var)); // to be filled
+	}
+
         liveIn.addAll(liveUse);
     }
 

@@ -30,6 +30,8 @@ public class Temp {
 
 	public int lastVisitedBB = -1;
 
+	public int duLastVisitedBB = -1;
+
 	private static int tempCount = 0;
 
 	public static final Comparator<Temp> ID_COMPARATOR = new Comparator<Temp>() {
